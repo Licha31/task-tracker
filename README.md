@@ -6,7 +6,7 @@ Simple internal tracker for weekly Payroll and Sales Tax work.
 
 - Frontend: React + TypeScript + Vite
 - Backend: Python + FastAPI
-- Database: SQLite
+- Database: SQLite for local development; PostgreSQL for production
 - Database access: explicit SQL through SQLAlchemy sessions
 
 The project follows a SQL-first learning approach: understand the SQL operation first, then see how Python executes it.
@@ -42,7 +42,7 @@ The project follows a SQL-first learning approach: understand the SQL operation 
 ## Project structure
 
 ```text
-backend/   FastAPI API, scheduling logic, SQL access and SQLite DB
+backend/   FastAPI API, scheduling logic, SQL access and database configuration
 frontend/  React + TypeScript UI
 ```
 
@@ -67,6 +67,11 @@ API: `http://localhost:8000`
 
 Docs: `http://localhost:8000/docs`
 
+The backend reads `DATABASE_URL`. When it is unset outside production it defaults to
+`sqlite:///./payroll_tracker.db`, so the existing `backend/payroll_tracker.db` remains the local
+development database when the backend is started from `backend/`. You may explicitly set another
+SQLite or PostgreSQL URL when needed.
+
 ### Frontend
 
 ```powershell
@@ -84,11 +89,19 @@ Use `localhost` for both local services. Mixing `localhost` and `127.0.0.1` make
 
 Backend variables:
 
+- `DATABASE_URL`: required in production. Set this to Railway's PostgreSQL connection string. Both
+  `postgres://` and `postgresql://` URLs are normalized to SQLAlchemy's psycopg 3 driver.
 - `ADMIN_PASSWORD`: the Admin password, validated only by FastAPI.
 - `ADMIN_SESSION_SECRET`: a long random value used to sign the 12-hour Admin session.
 - `ENVIRONMENT`: set to `production` on Railway so the session cookie uses `Secure`.
 - `FRONTEND_ORIGINS`: comma-separated frontend origins allowed by CORS.
 - `ADMIN_COOKIE_SAMESITE`: defaults to `lax`. Use `none` with `ENVIRONMENT=production` only when the frontend and backend are deployed on different sites.
+
+Production does not use or require a local database file. On application startup, SQLAlchemy
+creates any missing tables and indexes in the configured PostgreSQL database. This metadata-based
+initialization is intentionally kept for the MVP: it creates an empty schema but does not migrate
+existing tables or copy local SQLite data. Future model changes that alter deployed tables will
+require a migration strategy.
 
 Frontend variable:
 

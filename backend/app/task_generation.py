@@ -1,10 +1,11 @@
 from datetime import date
-import profile
 
-from dateutil.relativedelta import relativedelta
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from app.models import Task
 from app.payroll_schedule import (
     generate_biweekly_payroll_dates,
     generate_monthly_payroll_dates,
@@ -29,6 +30,17 @@ def months_between(start: date, end: date) -> int:
         + end.month
         - start.month
     )
+
+
+def insert_task_if_missing(db: Session, values: dict[str, object]) -> None:
+    dialect_name = db.get_bind().dialect.name
+    if dialect_name == "sqlite":
+        statement = sqlite_insert(Task).values(**values).on_conflict_do_nothing()
+    elif dialect_name == "postgresql":
+        statement = postgresql_insert(Task).values(**values).on_conflict_do_nothing()
+    else:
+        raise RuntimeError(f"Unsupported database dialect: {dialect_name}")
+    db.execute(statement)
     
 def generate_payroll_tasks(
     db: Session,
@@ -119,29 +131,14 @@ def generate_payroll_tasks(
             if process_date > week_end:
                 continue
 
-            db.execute(
-                text(
-                    """
-                    INSERT OR IGNORE INTO tasks (
-                        company_id,
-                        task_type,
-                        process_date,
-                        pay_date,
-                        status
-                    )
-                    VALUES (
-                        :company_id,
-                        'payroll',
-                        :process_date,
-                        :pay_date,
-                        'pending'
-                    )
-                    """
-                ),
+            insert_task_if_missing(
+                db,
                 {
                     "company_id": profile["company_id"],
+                    "task_type": "payroll",
                     "process_date": process_date,
                     "pay_date": pay_date,
+                    "status": "pending",
                 },
             )
             
@@ -198,26 +195,13 @@ def generate_sales_tax_tasks(
             if due_date > week_end:
                 continue
 
-            db.execute(
-                text(
-                    """
-                    INSERT OR IGNORE INTO tasks (
-                        company_id,
-                        task_type,
-                        due_date,
-                        status
-                    )
-                    VALUES (
-                        :company_id,
-                        'sales_tax',
-                        :due_date,
-                        'pending'
-                    )
-                    """
-                ),
+            insert_task_if_missing(
+                db,
                 {
                     "company_id": profile["company_id"],
+                    "task_type": "sales_tax",
                     "due_date": due_date,
+                    "status": "pending",
                 },
             )
 

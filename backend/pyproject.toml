@@ -8,6 +8,7 @@ dependencies = [
     "holidays>=0.103",
     "itsdangerous>=2.2",
     "python-dateutil>=2.9.0.post0",
+    "psycopg[binary]>=3.3.2",
     "sqlalchemy>=2.0.52",
     "uvicorn>=0.52.4",
 ]

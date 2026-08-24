@@ -1,23 +1,11 @@
-from sqlalchemy import text
-
 from app.database import engine
+from app.models import Task
 
 
 def add_unique_index():
     with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_tasks_occurrence
-                ON tasks (
-                    company_id,
-                    task_type,
-                    COALESCE(process_date, ''),
-                    COALESCE(due_date, '')
-                )
-                """
-            )
-        )
+        for index in Task.__table__.indexes:
+            index.create(bind=connection, checkfirst=True)
 
     print("Tasks unique index created.")
 

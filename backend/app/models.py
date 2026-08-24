@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from datetime import date
 
-from sqlalchemy import Date, ForeignKey, Integer, String
+from sqlalchemy import Date, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -13,11 +15,11 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     ein: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
 
-    payroll_profile: Mapped["PayrollProfile | None"] = relationship(
+    payroll_profile: Mapped[PayrollProfile | None] = relationship(
         back_populates="company",
         cascade="all, delete-orphan",
     )
-    sales_tax_profile: Mapped["SalesTaxProfile | None"] = relationship(
+    sales_tax_profile: Mapped[SalesTaxProfile | None] = relationship(
         back_populates="company",
         cascade="all, delete-orphan",
     )
@@ -82,4 +84,25 @@ class Task(Base):
         String(20),
         nullable=False,
         default="pending",
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_tasks_payroll_occurrence",
+            "company_id",
+            "task_type",
+            "process_date",
+            unique=True,
+            sqlite_where=text("task_type = 'payroll'"),
+            postgresql_where=text("task_type = 'payroll'"),
+        ),
+        Index(
+            "uq_tasks_sales_tax_occurrence",
+            "company_id",
+            "task_type",
+            "due_date",
+            unique=True,
+            sqlite_where=text("task_type = 'sales_tax'"),
+            postgresql_where=text("task_type = 'sales_tax'"),
+        ),
     )

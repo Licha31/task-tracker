@@ -18,3 +18,9 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Local database
+backend/payroll_tracker.db
+
+# Accidental Node artifacts in backend
+backend/package-lock.json

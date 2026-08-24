@@ -2,11 +2,12 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import insert, text
 from sqlalchemy.orm import Session
 
 from app.auth import password_is_valid, require_admin
 from app.database import get_db
+from app.models import Company
 from app.schemas import CompanyInput, CompanyRead
 from app.task_generation import ensure_tasks_until
 
@@ -270,15 +271,11 @@ def create_client(
 ):
     ensure_unique_ein(db, payload.ein)
 
-    result = db.execute(
-        text("INSERT INTO companies (name, ein) VALUES (:name, :ein)"),
-        {"name": payload.name.strip(), "ein": payload.ein.strip()},
-    )
-    company_id = result.lastrowid
-
-    if company_id is None:
-        db.rollback()
-        raise HTTPException(status_code=500, detail="Could not create client")
+    company_id = db.execute(
+        insert(Company)
+        .values(name=payload.name.strip(), ein=payload.ein.strip())
+        .returning(Company.id)
+    ).scalar_one()
 
     if payload.payroll is not None:
         insert_payroll_profile(db, company_id, payload.payroll)

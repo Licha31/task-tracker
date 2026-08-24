@@ -3,7 +3,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -32,21 +32,6 @@ def api_client(tmp_path, monkeypatch) -> Iterator[tuple[TestClient, sessionmaker
 
     test_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(bind=engine)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                CREATE UNIQUE INDEX uq_tasks_occurrence
-                ON tasks (
-                    company_id,
-                    task_type,
-                    COALESCE(process_date, ''),
-                    COALESCE(due_date, '')
-                )
-                """
-            )
-        )
-
     def override_get_db():
         db = test_session()
         try:

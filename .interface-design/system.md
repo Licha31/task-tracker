@@ -130,6 +130,20 @@ The signature pattern is a thin vertical rule paired with monospaced operational
 - Payroll and Sales Tax enabled controls stay aligned with their fieldset legends.
 - Form actions are right-aligned and use the shared secondary/primary button treatment.
 
+## Repeated configuration pattern
+
+- Repeated operational configurations, including Payroll Schedules and Sales Tax Registrations, use continuous ruled groups rather than cards.
+- Each group begins with a compact identity line and keeps its related form controls aligned to the shared form grid.
+- Separate neighboring groups with restrained low-opacity rules. Do not introduce additional surfaces, shadows, or nested containers to distinguish them.
+- Add actions belong at the parent section level so they apply clearly to the full configuration collection.
+- Remove or archive actions remain visually secondary. Use the established destructive color and quiet button treatment so their consequence is clear without competing with primary save actions.
+- Jurisdiction, task source, and other compact source metadata use the existing uppercase IBM Plex Mono operational style.
+- Weekly and Calendar identify a task source in one compact, middle-dot-separated line:
+  - `PAYROLL · Employees · FL`
+  - `SALES TAX · GA`
+- Preserve the ledger-inspired border, typography, spacing, and color system when applying this pattern.
+- Do not convert repeated configurations into pills, badges, nested cards, wizard steps, or a new accent-color taxonomy.
+
 ## Guest and Admin UI behavior
 
 - A fresh unauthenticated visit shows the access screen.

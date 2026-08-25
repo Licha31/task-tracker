@@ -13,29 +13,6 @@ from app.task_generation import ensure_tasks_until
 
 router = APIRouter(prefix="/api")
 
-COMPANY_SELECT = """
-SELECT
-    c.id,
-    c.name,
-    c.ein,
-    p.id AS payroll_id,
-    p.sui_id,
-    p.sit_id,
-    p.principal_owner,
-    p.frequency AS payroll_frequency,
-    p.payroll_platform,
-    p.next_pay_date,
-    p.next_process_date,
-    p.semi_monthly_day_1,
-    p.semi_monthly_day_2,
-    s.id AS sales_tax_id,
-    s.frequency AS sales_tax_frequency,
-    s.next_due_date AS sales_tax_next_due_date
-FROM companies AS c
-LEFT JOIN payroll_profiles AS p ON p.company_id = c.id
-LEFT JOIN sales_tax_profiles AS s ON s.company_id = c.id
-"""
-
 
 class TaskStatusUpdate(BaseModel):
     status: str
@@ -71,102 +48,213 @@ def logout(request: Request):
     )
 
 
-def row_to_company(row) -> dict:
-    payroll = None
-    if row.payroll_id is not None:
-        payroll = {
-            "id": row.payroll_id,
-            "sui_id": row.sui_id,
-            "sit_id": row.sit_id,
-            "principal_owner": row.principal_owner,
-            "frequency": row.payroll_frequency,
-            "payroll_platform": row.payroll_platform,
-            "next_pay_date": row.next_pay_date,
-            "next_process_date": row.next_process_date,
-            "semi_monthly_day_1": row.semi_monthly_day_1,
-            "semi_monthly_day_2": row.semi_monthly_day_2,
-        }
-
-    sales_tax = None
-    if row.sales_tax_id is not None:
-        sales_tax = {
-            "id": row.sales_tax_id,
-            "frequency": row.sales_tax_frequency,
-            "next_due_date": row.sales_tax_next_due_date,
-        }
+def build_company(db: Session, company) -> dict:
+    payroll_schedules = (
+        db.execute(
+            text(
+                """
+            SELECT
+                id, label, jurisdiction, sui_id, sit_id, principal_owner,
+                frequency, payroll_platform, next_pay_date, next_process_date,
+                semi_monthly_day_1, semi_monthly_day_2
+            FROM payroll_schedules
+            WHERE company_id = :company_id AND active = TRUE
+            ORDER BY id
+            """
+            ),
+            {"company_id": company["id"]},
+        )
+        .mappings()
+        .all()
+    )
+    sales_tax_registrations = (
+        db.execute(
+            text(
+                """
+            SELECT id, jurisdiction, frequency, next_due_date
+            FROM sales_tax_registrations
+            WHERE company_id = :company_id AND active = TRUE
+            ORDER BY id
+            """
+            ),
+            {"company_id": company["id"]},
+        )
+        .mappings()
+        .all()
+    )
 
     return {
-        "id": row.id,
-        "name": row.name,
-        "ein": row.ein,
-        "payroll": payroll,
-        "sales_tax": sales_tax,
+        "id": company["id"],
+        "name": company["name"],
+        "ein": company["ein"],
+        "payroll_schedules": [dict(schedule) for schedule in payroll_schedules],
+        "sales_tax_registrations": [dict(registration) for registration in sales_tax_registrations],
     }
 
 
 def get_company_or_404(db: Session, company_id: int) -> dict:
-    sql = text(COMPANY_SELECT + " WHERE c.id = :company_id")
-    row = db.execute(sql, {"company_id": company_id}).mappings().first()
-    if row is None:
+    company = (
+        db.execute(
+            text("SELECT id, name, ein FROM companies WHERE id = :company_id"),
+            {"company_id": company_id},
+        )
+        .mappings()
+        .first()
+    )
+    if company is None:
         raise HTTPException(status_code=404, detail="Client not found")
-    return row_to_company(row)
+    return build_company(db, company)
 
 
 def ensure_unique_ein(db: Session, ein: str, company_id: int | None = None) -> None:
     sql = "SELECT id FROM companies WHERE ein = :ein"
     params: dict[str, object] = {"ein": ein.strip()}
-
     if company_id is not None:
         sql += " AND id != :company_id"
         params["company_id"] = company_id
-
-    existing = db.execute(text(sql), params).first()
-    if existing is not None:
+    if db.execute(text(sql), params).first() is not None:
         raise HTTPException(status_code=409, detail="A client with this EIN already exists")
 
 
-def insert_payroll_profile(db: Session, company_id: int, payroll) -> None:
-    db.execute(
-        text(
-            """
-            INSERT INTO payroll_profiles (
-                company_id,
-                sui_id,
-                sit_id,
-                principal_owner,
-                frequency,
-                payroll_platform,
-                next_pay_date,
-                next_process_date,
-                semi_monthly_day_1,
-                semi_monthly_day_2
-            ) VALUES (
-                :company_id,
-                :sui_id,
-                :sit_id,
-                :principal_owner,
-                :frequency,
-                :payroll_platform,
-                :next_pay_date,
-                :next_process_date,
-                :semi_monthly_day_1,
-                :semi_monthly_day_2
-            )
-            """
-        ),
-        {
-            "company_id": company_id,
-            "sui_id": payroll.sui_id or None,
-            "sit_id": payroll.sit_id or None,
-            "principal_owner": payroll.principal_owner or None,
-            "frequency": payroll.frequency,
-            "payroll_platform": payroll.payroll_platform.strip(),
-            "next_pay_date": payroll.next_pay_date,
-            "next_process_date": payroll.next_process_date,
-            "semi_monthly_day_1": payroll.semi_monthly_day_1,
-            "semi_monthly_day_2": payroll.semi_monthly_day_2,
-        },
+def normalized_text(value: str) -> str:
+    return value.strip()
+
+
+def reconcile_payroll_schedules(db: Session, company_id: int, schedules) -> None:
+    active_ids = set(
+        db.execute(
+            text(
+                "SELECT id FROM payroll_schedules WHERE company_id = :company_id AND active = TRUE"
+            ),
+            {"company_id": company_id},
+        ).scalars()
     )
+    supplied_ids = [schedule.id for schedule in schedules if schedule.id is not None]
+    if len(supplied_ids) != len(set(supplied_ids)):
+        raise HTTPException(status_code=422, detail="Duplicate Payroll Schedule ID")
+    if not set(supplied_ids).issubset(active_ids):
+        raise HTTPException(status_code=422, detail="Invalid Payroll Schedule ID")
+
+    for schedule in schedules:
+        values = {
+            "company_id": company_id,
+            "label": normalized_text(schedule.label),
+            "jurisdiction": normalized_text(schedule.jurisdiction),
+            "sui_id": normalized_text(schedule.sui_id) if schedule.sui_id else None,
+            "sit_id": normalized_text(schedule.sit_id) if schedule.sit_id else None,
+            "principal_owner": (
+                normalized_text(schedule.principal_owner) if schedule.principal_owner else None
+            ),
+            "frequency": schedule.frequency,
+            "payroll_platform": normalized_text(schedule.payroll_platform),
+            "next_pay_date": schedule.next_pay_date,
+            "next_process_date": schedule.next_process_date,
+            "semi_monthly_day_1": schedule.semi_monthly_day_1,
+            "semi_monthly_day_2": schedule.semi_monthly_day_2,
+        }
+        if schedule.id is None:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO payroll_schedules (
+                        company_id, label, jurisdiction, sui_id, sit_id, principal_owner,
+                        frequency, payroll_platform, next_pay_date, next_process_date,
+                        semi_monthly_day_1, semi_monthly_day_2, active
+                    ) VALUES (
+                        :company_id, :label, :jurisdiction, :sui_id, :sit_id, :principal_owner,
+                        :frequency, :payroll_platform, :next_pay_date, :next_process_date,
+                        :semi_monthly_day_1, :semi_monthly_day_2, TRUE
+                    )
+                    """
+                ),
+                values,
+            )
+        else:
+            db.execute(
+                text(
+                    """
+                    UPDATE payroll_schedules
+                    SET label = :label,
+                        jurisdiction = :jurisdiction,
+                        sui_id = :sui_id,
+                        sit_id = :sit_id,
+                        principal_owner = :principal_owner,
+                        frequency = :frequency,
+                        payroll_platform = :payroll_platform,
+                        next_pay_date = :next_pay_date,
+                        next_process_date = :next_process_date,
+                        semi_monthly_day_1 = :semi_monthly_day_1,
+                        semi_monthly_day_2 = :semi_monthly_day_2
+                    WHERE id = :schedule_id AND company_id = :company_id AND active = TRUE
+                    """
+                ),
+                {**values, "schedule_id": schedule.id},
+            )
+
+    for schedule_id in active_ids - set(supplied_ids):
+        db.execute(
+            text("UPDATE payroll_schedules SET active = FALSE WHERE id = :schedule_id"),
+            {"schedule_id": schedule_id},
+        )
+
+
+def reconcile_sales_tax_registrations(db: Session, company_id: int, registrations) -> None:
+    active_ids = set(
+        db.execute(
+            text(
+                "SELECT id FROM sales_tax_registrations "
+                "WHERE company_id = :company_id AND active = TRUE"
+            ),
+            {"company_id": company_id},
+        ).scalars()
+    )
+    supplied_ids = [
+        registration.id for registration in registrations if registration.id is not None
+    ]
+    if len(supplied_ids) != len(set(supplied_ids)):
+        raise HTTPException(status_code=422, detail="Duplicate Sales Tax Registration ID")
+    if not set(supplied_ids).issubset(active_ids):
+        raise HTTPException(status_code=422, detail="Invalid Sales Tax Registration ID")
+
+    for registration in registrations:
+        values = {
+            "company_id": company_id,
+            "jurisdiction": normalized_text(registration.jurisdiction),
+            "frequency": registration.frequency,
+            "next_due_date": registration.next_due_date,
+        }
+        if registration.id is None:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO sales_tax_registrations (
+                        company_id, jurisdiction, frequency, next_due_date, active
+                    ) VALUES (
+                        :company_id, :jurisdiction, :frequency, :next_due_date, TRUE
+                    )
+                    """
+                ),
+                values,
+            )
+        else:
+            db.execute(
+                text(
+                    """
+                    UPDATE sales_tax_registrations
+                    SET jurisdiction = :jurisdiction,
+                        frequency = :frequency,
+                        next_due_date = :next_due_date
+                    WHERE id = :registration_id AND company_id = :company_id AND active = TRUE
+                    """
+                ),
+                {**values, "registration_id": registration.id},
+            )
+
+    for registration_id in active_ids - set(supplied_ids):
+        db.execute(
+            text("UPDATE sales_tax_registrations SET active = FALSE WHERE id = :registration_id"),
+            {"registration_id": registration_id},
+        )
 
 
 @router.patch("/tasks/{task_id}")
@@ -176,64 +264,48 @@ def update_task_status(
     _admin: None = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    allowed_statuses = {"pending", "in_progress", "completed"}
-
-    if payload.status not in allowed_statuses:
+    if payload.status not in {"pending", "in_progress", "completed"}:
         raise HTTPException(status_code=422, detail="Invalid status")
-
     result = db.execute(
-        text(
-            """
-            UPDATE tasks
-            SET status = :status
-            WHERE id = :task_id
-            """
-        ),
+        text("UPDATE tasks SET status = :status WHERE id = :task_id"),
         {"status": payload.status, "task_id": task_id},
     )
-
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Task not found")
-
     db.commit()
     return {"id": task_id, "status": payload.status}
 
 
 @router.get("/tasks")
-def list_tasks(
-    week_start: date,
-    week_end: date,
-    db: Session = Depends(get_db),
-):
+def list_tasks(week_start: date, week_end: date, db: Session = Depends(get_db)):
     ensure_tasks_until(db, week_end)
-
     statement = text(
         """
         SELECT
             tasks.id,
             companies.name AS company_name,
             tasks.task_type,
+            payroll_schedules.label AS source_label,
+            COALESCE(
+                payroll_schedules.jurisdiction,
+                sales_tax_registrations.jurisdiction
+            ) AS source_jurisdiction,
             tasks.process_date,
             tasks.pay_date,
             tasks.due_date,
             tasks.status
         FROM tasks
-        JOIN companies
-            ON tasks.company_id = companies.id
+        JOIN companies ON tasks.company_id = companies.id
+        LEFT JOIN payroll_schedules ON tasks.payroll_schedule_id = payroll_schedules.id
+        LEFT JOIN sales_tax_registrations
+            ON tasks.sales_tax_registration_id = sales_tax_registrations.id
         WHERE
-            (
-                tasks.task_type = 'payroll'
-                AND tasks.process_date BETWEEN :week_start AND :week_end
-            )
+            (tasks.task_type = 'payroll' AND tasks.process_date BETWEEN :week_start AND :week_end)
             OR
-            (
-                tasks.task_type = 'sales_tax'
-                AND tasks.due_date BETWEEN :week_start AND :week_end
-            )
-        ORDER BY COALESCE(tasks.process_date, tasks.due_date)
+            (tasks.task_type = 'sales_tax' AND tasks.due_date BETWEEN :week_start AND :week_end)
+        ORDER BY COALESCE(tasks.process_date, tasks.due_date), tasks.id
         """
     )
-
     return (
         db.execute(
             statement,
@@ -245,13 +317,9 @@ def list_tasks(
 
 
 @router.get("/clients", response_model=list[CompanyRead])
-def list_clients(
-    _admin: None = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    sql = text(COMPANY_SELECT + " ORDER BY c.name")
-    rows = db.execute(sql).mappings().all()
-    return [row_to_company(row) for row in rows]
+def list_clients(_admin: None = Depends(require_admin), db: Session = Depends(get_db)):
+    companies = db.execute(text("SELECT id, name, ein FROM companies ORDER BY name")).mappings()
+    return [build_company(db, company) for company in companies]
 
 
 @router.get("/clients/{company_id}", response_model=CompanyRead)
@@ -270,31 +338,18 @@ def create_client(
     db: Session = Depends(get_db),
 ):
     ensure_unique_ein(db, payload.ein)
+    if any(schedule.id is not None for schedule in payload.payroll_schedules) or any(
+        registration.id is not None for registration in payload.sales_tax_registrations
+    ):
+        raise HTTPException(status_code=422, detail="New configurations cannot include IDs")
 
     company_id = db.execute(
         insert(Company)
         .values(name=payload.name.strip(), ein=payload.ein.strip())
         .returning(Company.id)
     ).scalar_one()
-
-    if payload.payroll is not None:
-        insert_payroll_profile(db, company_id, payload.payroll)
-
-    if payload.sales_tax is not None:
-        db.execute(
-            text(
-                """
-                INSERT INTO sales_tax_profiles (company_id, frequency, next_due_date)
-                VALUES (:company_id, :frequency, :next_due_date)
-                """
-            ),
-            {
-                "company_id": company_id,
-                "frequency": payload.sales_tax.frequency,
-                "next_due_date": payload.sales_tax.next_due_date,
-            },
-        )
-
+    reconcile_payroll_schedules(db, company_id, payload.payroll_schedules)
+    reconcile_sales_tax_registrations(db, company_id, payload.sales_tax_registrations)
     db.commit()
     return get_company_or_404(db, company_id)
 
@@ -308,42 +363,12 @@ def update_client(
 ):
     get_company_or_404(db, company_id)
     ensure_unique_ein(db, payload.ein, company_id)
-
     db.execute(
         text("UPDATE companies SET name = :name, ein = :ein WHERE id = :company_id"),
-        {
-            "name": payload.name.strip(),
-            "ein": payload.ein.strip(),
-            "company_id": company_id,
-        },
+        {"name": payload.name.strip(), "ein": payload.ein.strip(), "company_id": company_id},
     )
-
-    db.execute(
-        text("DELETE FROM payroll_profiles WHERE company_id = :company_id"),
-        {"company_id": company_id},
-    )
-    if payload.payroll is not None:
-        insert_payroll_profile(db, company_id, payload.payroll)
-
-    db.execute(
-        text("DELETE FROM sales_tax_profiles WHERE company_id = :company_id"),
-        {"company_id": company_id},
-    )
-    if payload.sales_tax is not None:
-        db.execute(
-            text(
-                """
-                INSERT INTO sales_tax_profiles (company_id, frequency, next_due_date)
-                VALUES (:company_id, :frequency, :next_due_date)
-                """
-            ),
-            {
-                "company_id": company_id,
-                "frequency": payload.sales_tax.frequency,
-                "next_due_date": payload.sales_tax.next_due_date,
-            },
-        )
-
+    reconcile_payroll_schedules(db, company_id, payload.payroll_schedules)
+    reconcile_sales_tax_registrations(db, company_id, payload.sales_tax_registrations)
     db.commit()
     return get_company_or_404(db, company_id)
 
@@ -355,17 +380,12 @@ def delete_client(
     db: Session = Depends(get_db),
 ):
     get_company_or_404(db, company_id)
-
-    db.execute(text("DELETE FROM tasks WHERE company_id = :company_id"), {"company_id": company_id})
-    db.execute(
-        text("DELETE FROM payroll_profiles WHERE company_id = :company_id"),
-        {"company_id": company_id},
-    )
-    db.execute(
-        text("DELETE FROM sales_tax_profiles WHERE company_id = :company_id"),
-        {"company_id": company_id},
-    )
-    db.execute(text("DELETE FROM companies WHERE id = :company_id"), {"company_id": company_id})
+    params = {"company_id": company_id}
+    db.execute(text("DELETE FROM tasks WHERE company_id = :company_id"), params)
+    db.execute(text("DELETE FROM payroll_schedules WHERE company_id = :company_id"), params)
+    db.execute(text("DELETE FROM sales_tax_registrations WHERE company_id = :company_id"), params)
+    db.execute(text("DELETE FROM payroll_profiles WHERE company_id = :company_id"), params)
+    db.execute(text("DELETE FROM sales_tax_profiles WHERE company_id = :company_id"), params)
+    db.execute(text("DELETE FROM companies WHERE id = :company_id"), params)
     db.commit()
-
     return Response(status_code=status.HTTP_204_NO_CONTENT)

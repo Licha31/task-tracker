@@ -98,7 +98,11 @@ function CalendarView() {
                     {dayTasks.slice(0, 3).map((task) => (
                       <span className={`calendar-task calendar-task--${task.task_type}`} key={task.id}>
                         <strong>{task.company_name}</strong>
-                        <small>{task.task_type === "payroll" ? "Payroll" : "Sales Tax"}</small>
+                        <small>
+                          {task.task_type === "payroll"
+                            ? `Payroll · ${task.source_label} · ${task.source_jurisdiction}`
+                            : `Sales Tax · ${task.source_jurisdiction}`}
+                        </small>
                       </span>
                     ))}
                     {dayTasks.length > 3 && <small className="more-tasks">+{dayTasks.length - 3} more</small>}
@@ -127,6 +131,11 @@ function CalendarView() {
                       {task.task_type === "payroll" ? "Payroll" : "Sales Tax"}
                     </span>
                     <h3>{task.company_name}</h3>
+                    <p className="detail-source">
+                      {task.task_type === "payroll"
+                        ? `${task.source_label} · ${task.source_jurisdiction}`
+                        : task.source_jurisdiction}
+                    </p>
                   </div>
                   <dl>
                     {task.task_type === "payroll" ? (

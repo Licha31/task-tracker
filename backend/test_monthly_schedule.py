@@ -2,7 +2,6 @@ from datetime import date
 
 from app.payroll_schedule import generate_monthly_payroll_dates
 
-
 dates = generate_monthly_payroll_dates(
     anchor_pay_date=date(2026, 8, 28),
     anchor_process_date=date(2026, 8, 26),

@@ -1,11 +1,9 @@
 import os
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import models  # noqa: F401 - registers tables before create_all
 from app.auth import (
     SESSION_COOKIE_NAME,
     SESSION_MAX_AGE_SECONDS,
@@ -14,14 +12,7 @@ from app.auth import (
     session_cookie_secure,
     validate_auth_settings,
 )
-from app.database import Base, engine
 from app.routes import router
-
-
-@asynccontextmanager
-async def lifespan(_app: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    yield
 
 
 def get_frontend_origins() -> list[str]:
@@ -34,7 +25,7 @@ def get_frontend_origins() -> list[str]:
 
 def create_app() -> FastAPI:
     validate_auth_settings()
-    application = FastAPI(title="Task Tracker API", lifespan=lifespan)
+    application = FastAPI(title="Task Tracker API")
 
     application.add_middleware(
         SessionMiddleware,

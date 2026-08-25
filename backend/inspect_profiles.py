@@ -2,7 +2,6 @@ from sqlalchemy import text
 
 from app.database import engine
 
-
 with engine.connect() as connection:
     payroll_profiles = connection.execute(
         text(

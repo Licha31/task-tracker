@@ -125,6 +125,11 @@ function TrackerView({ isAdmin }: Props) {
             <article className="task-row" key={task.id}>
               <div className="task-company">
                 <h2>{task.company_name}</h2>
+                <p className="task-source">
+                  {task.task_type === "payroll"
+                    ? `Payroll · ${task.source_label} · ${task.source_jurisdiction}`
+                    : `Sales Tax · ${task.source_jurisdiction}`}
+                </p>
               </div>
 
               <span className={`task-kind task-kind--${task.task_type}`}>

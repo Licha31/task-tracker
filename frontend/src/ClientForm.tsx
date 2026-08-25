@@ -4,25 +4,19 @@ import type {
   Company,
   CompanyPayload,
   PayrollFrequency,
+  PayrollScheduleInput,
   SalesTaxFrequency,
+  SalesTaxRegistrationInput,
 } from "./types";
+
+type PayrollDraft = PayrollScheduleInput & { key: string };
+type SalesTaxDraft = SalesTaxRegistrationInput & { key: string };
 
 type FormState = {
   name: string;
   ein: string;
-  payrollEnabled: boolean;
-  suiId: string;
-  sitId: string;
-  principalOwner: string;
-  payrollFrequency: PayrollFrequency;
-  payrollPlatform: string;
-  nextPayDate: string;
-  nextProcessDate: string;
-  semiMonthlyDay1: string;
-  semiMonthlyDay2: string;
-  salesTaxEnabled: boolean;
-  salesTaxFrequency: SalesTaxFrequency;
-  salesTaxNextDueDate: string;
+  payrollSchedules: PayrollDraft[];
+  salesTaxRegistrations: SalesTaxDraft[];
 };
 
 type Props = {
@@ -31,24 +25,54 @@ type Props = {
   onSave: (payload: CompanyPayload) => Promise<void>;
 };
 
+let draftSequence = 0;
+
+function draftKey(prefix: string) {
+  draftSequence += 1;
+  return `${prefix}-${draftSequence}`;
+}
+
+function emptyPayrollSchedule(): PayrollDraft {
+  return {
+    key: draftKey("payroll"),
+    label: "",
+    jurisdiction: "",
+    sui_id: null,
+    sit_id: null,
+    principal_owner: null,
+    frequency: "weekly",
+    payroll_platform: "",
+    next_pay_date: "",
+    next_process_date: "",
+    semi_monthly_day_1: null,
+    semi_monthly_day_2: null,
+  };
+}
+
+function emptySalesTaxRegistration(): SalesTaxDraft {
+  return {
+    key: draftKey("sales-tax"),
+    jurisdiction: "",
+    frequency: "monthly",
+    next_due_date: "",
+  };
+}
+
 function ClientForm({ company, onCancel, onSave }: Props) {
   const initial = useMemo<FormState>(
     () => ({
       name: company?.name ?? "",
       ein: company?.ein ?? "",
-      payrollEnabled: Boolean(company?.payroll),
-      suiId: company?.payroll?.sui_id ?? "",
-      sitId: company?.payroll?.sit_id ?? "",
-      principalOwner: company?.payroll?.principal_owner ?? "",
-      payrollFrequency: company?.payroll?.frequency ?? "weekly",
-      payrollPlatform: company?.payroll?.payroll_platform ?? "",
-      nextPayDate: company?.payroll?.next_pay_date ?? "",
-      nextProcessDate: company?.payroll?.next_process_date ?? "",
-      semiMonthlyDay1: company?.payroll?.semi_monthly_day_1?.toString() ?? "",
-      semiMonthlyDay2: company?.payroll?.semi_monthly_day_2?.toString() ?? "",
-      salesTaxEnabled: Boolean(company?.sales_tax),
-      salesTaxFrequency: company?.sales_tax?.frequency ?? "monthly",
-      salesTaxNextDueDate: company?.sales_tax?.next_due_date ?? "",
+      payrollSchedules:
+        company?.payroll_schedules.map((schedule) => ({
+          ...schedule,
+          key: draftKey("payroll"),
+        })) ?? [],
+      salesTaxRegistrations:
+        company?.sales_tax_registrations.map((registration) => ({
+          ...registration,
+          key: draftKey("sales-tax"),
+        })) ?? [],
     }),
     [company],
   );
@@ -57,9 +81,24 @@ function ClientForm({ company, onCancel, onSave }: Props) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const update = <K extends keyof FormState>(field: K, value: FormState[K]) => {
-    setForm((current) => ({ ...current, [field]: value }));
-  };
+  function updatePayroll(index: number, values: Partial<PayrollDraft>) {
+    setForm((current) => ({
+      ...current,
+      payrollSchedules: current.payrollSchedules.map((schedule, scheduleIndex) =>
+        scheduleIndex === index ? { ...schedule, ...values } : schedule,
+      ),
+    }));
+  }
+
+  function updateSalesTax(index: number, values: Partial<SalesTaxDraft>) {
+    setForm((current) => ({
+      ...current,
+      salesTaxRegistrations: current.salesTaxRegistrations.map(
+        (registration, registrationIndex) =>
+          registrationIndex === index ? { ...registration, ...values } : registration,
+      ),
+    }));
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -70,62 +109,63 @@ function ClientForm({ company, onCancel, onSave }: Props) {
       return;
     }
 
-    if (
-      form.payrollEnabled &&
-      (!form.payrollPlatform.trim() || !form.nextPayDate || !form.nextProcessDate)
-    ) {
-      setError("Payroll platform, next pay date and next process date are required.");
-      return;
-    }
-
-    if (form.payrollEnabled && form.payrollFrequency === "semi_monthly") {
-      const day1 = Number(form.semiMonthlyDay1);
-      const day2 = Number(form.semiMonthlyDay2);
-
-      if (!form.semiMonthlyDay1 || !form.semiMonthlyDay2) {
-        setError("Both semi-monthly pay days are required.");
+    for (const schedule of form.payrollSchedules) {
+      if (
+        !schedule.label.trim()
+        || !schedule.jurisdiction.trim()
+        || !schedule.payroll_platform.trim()
+        || !schedule.next_pay_date
+        || !schedule.next_process_date
+      ) {
+        setError(
+          "Each Payroll Schedule requires a label, jurisdiction, platform, process date and pay date.",
+        );
         return;
       }
-
-      if (day1 < 1 || day1 > 31 || day2 < 1 || day2 > 31 || day1 === day2) {
+      if (
+        schedule.frequency === "semi_monthly"
+        && (
+          schedule.semi_monthly_day_1 === null
+          || schedule.semi_monthly_day_2 === null
+          || schedule.semi_monthly_day_1 === schedule.semi_monthly_day_2
+        )
+      ) {
         setError("Semi-monthly pay days must be different values between 1 and 31.");
         return;
       }
     }
 
-    if (form.salesTaxEnabled && !form.salesTaxNextDueDate) {
-      setError("Sales Tax next due date is required.");
+    if (
+      form.salesTaxRegistrations.some(
+        (registration) => !registration.jurisdiction.trim() || !registration.next_due_date,
+      )
+    ) {
+      setError("Each Sales Tax Registration requires a jurisdiction and next due date.");
       return;
     }
 
     const payload: CompanyPayload = {
       name: form.name.trim(),
       ein: form.ein.trim(),
-      payroll: form.payrollEnabled
-        ? {
-            sui_id: form.suiId.trim() || null,
-            sit_id: form.sitId.trim() || null,
-            principal_owner: form.principalOwner.trim() || null,
-            frequency: form.payrollFrequency,
-            payroll_platform: form.payrollPlatform.trim(),
-            next_pay_date: form.nextPayDate,
-            next_process_date: form.nextProcessDate,
-            semi_monthly_day_1:
-              form.payrollFrequency === "semi_monthly"
-                ? Number(form.semiMonthlyDay1)
-                : null,
-            semi_monthly_day_2:
-              form.payrollFrequency === "semi_monthly"
-                ? Number(form.semiMonthlyDay2)
-                : null,
-          }
-        : null,
-      sales_tax: form.salesTaxEnabled
-        ? {
-            frequency: form.salesTaxFrequency,
-            next_due_date: form.salesTaxNextDueDate,
-          }
-        : null,
+      payroll_schedules: form.payrollSchedules.map(({ key: _key, ...schedule }) => ({
+        ...schedule,
+        label: schedule.label.trim(),
+        jurisdiction: schedule.jurisdiction.trim(),
+        payroll_platform: schedule.payroll_platform.trim(),
+        sui_id: schedule.sui_id?.trim() || null,
+        sit_id: schedule.sit_id?.trim() || null,
+        principal_owner: schedule.principal_owner?.trim() || null,
+        semi_monthly_day_1:
+          schedule.frequency === "semi_monthly" ? schedule.semi_monthly_day_1 : null,
+        semi_monthly_day_2:
+          schedule.frequency === "semi_monthly" ? schedule.semi_monthly_day_2 : null,
+      })),
+      sales_tax_registrations: form.salesTaxRegistrations.map(
+        ({ key: _key, ...registration }) => ({
+          ...registration,
+          jurisdiction: registration.jurisdiction.trim(),
+        }),
+      ),
     };
 
     try {
@@ -145,9 +185,7 @@ function ClientForm({ company, onCancel, onSave }: Props) {
           <h1>{company ? "Edit client" : "Add client"}</h1>
           <p>Configure the company and the services you track.</p>
         </div>
-        <button type="button" className="button secondary" onClick={onCancel}>
-          Cancel
-        </button>
+        <button type="button" className="button secondary" onClick={onCancel}>Cancel</button>
       </header>
 
       <form onSubmit={submit}>
@@ -160,7 +198,7 @@ function ClientForm({ company, onCancel, onSave }: Props) {
               <span>Company name</span>
               <input
                 value={form.name}
-                onChange={(event) => update("name", event.target.value)}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
                 required
               />
             </label>
@@ -168,7 +206,7 @@ function ClientForm({ company, onCancel, onSave }: Props) {
               <span>EIN</span>
               <input
                 value={form.ein}
-                onChange={(event) => update("ein", event.target.value)}
+                onChange={(event) => setForm({ ...form, ein: event.target.value })}
                 required
               />
             </label>
@@ -176,151 +214,253 @@ function ClientForm({ company, onCancel, onSave }: Props) {
         </fieldset>
 
         <fieldset>
+          <legend>Payroll Schedules</legend>
           <div className="fieldset-title-row">
-            <legend>Payroll</legend>
-            <label className="toggle-label">
-              <input
-                type="checkbox"
-                checked={form.payrollEnabled}
-                onChange={(event) => update("payrollEnabled", event.target.checked)}
-              />
-              <span>Enabled</span>
-            </label>
+            <p className="fieldset-description">Independent schedules by payroll group and jurisdiction.</p>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setForm((current) => ({
+                ...current,
+                payrollSchedules: [...current.payrollSchedules, emptyPayrollSchedule()],
+              }))}
+            >
+              Add Payroll Schedule
+            </button>
           </div>
 
-          {form.payrollEnabled && (
-            <div className="field-grid two-columns">
-              <label>
-                <span>SUI ID</span>
-                <input value={form.suiId} onChange={(event) => update("suiId", event.target.value)} />
-              </label>
-              <label>
-                <span>SIT ID</span>
-                <input value={form.sitId} onChange={(event) => update("sitId", event.target.value)} />
-              </label>
-              <label>
-                <span>Principal owner</span>
-                <input
-                  value={form.principalOwner}
-                  onChange={(event) => update("principalOwner", event.target.value)}
-                />
-              </label>
-              <label>
-                <span>Payroll platform</span>
-                <input
-                  value={form.payrollPlatform}
-                  onChange={(event) => update("payrollPlatform", event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                <span>Frequency</span>
-                <select
-                  value={form.payrollFrequency}
-                  onChange={(event) =>
-                    update("payrollFrequency", event.target.value as PayrollFrequency)
-                  }
-                >
-                  <option value="weekly">Weekly</option>
-                  <option value="biweekly">Biweekly</option>
-                  <option value="semi_monthly">Semi-monthly</option>
-                  <option value="monthly">Monthly</option>
-                </select>
-              </label>
-
-              {form.payrollFrequency === "semi_monthly" && (
-                <>
-                  <label>
-                    <span>First pay day</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="31"
-                      value={form.semiMonthlyDay1}
-                      onChange={(event) => update("semiMonthlyDay1", event.target.value)}
-                      required
-                    />
-                  </label>
-                  <label>
-                    <span>Second pay day</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="31"
-                      value={form.semiMonthlyDay2}
-                      onChange={(event) => update("semiMonthlyDay2", event.target.value)}
-                      required
-                    />
-                  </label>
-                </>
-              )}
-
-              <label>
-                <span>Next process date</span>
-                <input
-                  type="date"
-                  value={form.nextProcessDate}
-                  onChange={(event) => update("nextProcessDate", event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                <span>Next pay date</span>
-                <input
-                  type="date"
-                  value={form.nextPayDate}
-                  onChange={(event) => update("nextPayDate", event.target.value)}
-                  required
-                />
-              </label>
+          {form.payrollSchedules.length === 0 ? (
+            <p className="configuration-empty">No Payroll Schedules configured.</p>
+          ) : (
+            <div className="configuration-list">
+              {form.payrollSchedules.map((schedule, index) => (
+                <section className="configuration-row" key={schedule.key}>
+                  <header className="configuration-heading">
+                    <div>
+                      <span>Payroll {String(index + 1).padStart(2, "0")}</span>
+                      <strong>{schedule.label || "New schedule"}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className="button delete-action"
+                      onClick={() => setForm((current) => ({
+                        ...current,
+                        payrollSchedules: current.payrollSchedules.filter(
+                          (_, scheduleIndex) => scheduleIndex !== index,
+                        ),
+                      }))}
+                    >
+                      {schedule.id ? "Archive" : "Remove"}
+                    </button>
+                  </header>
+                  <div className="field-grid two-columns">
+                    <label>
+                      <span>Label</span>
+                      <input
+                        value={schedule.label}
+                        onChange={(event) => updatePayroll(index, { label: event.target.value })}
+                        placeholder="Employees"
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>Jurisdiction</span>
+                      <input
+                        value={schedule.jurisdiction}
+                        onChange={(event) => updatePayroll(index, { jurisdiction: event.target.value })}
+                        placeholder="FL"
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>Payroll platform</span>
+                      <input
+                        value={schedule.payroll_platform}
+                        onChange={(event) => updatePayroll(index, { payroll_platform: event.target.value })}
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>Frequency</span>
+                      <select
+                        value={schedule.frequency}
+                        onChange={(event) => updatePayroll(index, {
+                          frequency: event.target.value as PayrollFrequency,
+                        })}
+                      >
+                        <option value="weekly">Weekly</option>
+                        <option value="biweekly">Biweekly</option>
+                        <option value="semi_monthly">Semi-monthly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>SUI ID</span>
+                      <input
+                        value={schedule.sui_id ?? ""}
+                        onChange={(event) => updatePayroll(index, { sui_id: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>SIT ID</span>
+                      <input
+                        value={schedule.sit_id ?? ""}
+                        onChange={(event) => updatePayroll(index, { sit_id: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>Principal owner</span>
+                      <input
+                        value={schedule.principal_owner ?? ""}
+                        onChange={(event) => updatePayroll(index, { principal_owner: event.target.value })}
+                      />
+                    </label>
+                    {schedule.frequency === "semi_monthly" && (
+                      <>
+                        <label>
+                          <span>First pay day</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="31"
+                            value={schedule.semi_monthly_day_1 ?? ""}
+                            onChange={(event) => updatePayroll(index, {
+                              semi_monthly_day_1: event.target.value
+                                ? Number(event.target.value)
+                                : null,
+                            })}
+                            required
+                          />
+                        </label>
+                        <label>
+                          <span>Second pay day</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="31"
+                            value={schedule.semi_monthly_day_2 ?? ""}
+                            onChange={(event) => updatePayroll(index, {
+                              semi_monthly_day_2: event.target.value
+                                ? Number(event.target.value)
+                                : null,
+                            })}
+                            required
+                          />
+                        </label>
+                      </>
+                    )}
+                    <label>
+                      <span>Next process date</span>
+                      <input
+                        type="date"
+                        value={schedule.next_process_date}
+                        onChange={(event) => updatePayroll(index, { next_process_date: event.target.value })}
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>Next pay date</span>
+                      <input
+                        type="date"
+                        value={schedule.next_pay_date}
+                        onChange={(event) => updatePayroll(index, { next_pay_date: event.target.value })}
+                        required
+                      />
+                    </label>
+                  </div>
+                </section>
+              ))}
             </div>
           )}
         </fieldset>
 
         <fieldset>
+          <legend>Sales Tax Registrations</legend>
           <div className="fieldset-title-row">
-            <legend>Sales Tax</legend>
-            <label className="toggle-label">
-              <input
-                type="checkbox"
-                checked={form.salesTaxEnabled}
-                onChange={(event) => update("salesTaxEnabled", event.target.checked)}
-              />
-              <span>Enabled</span>
-            </label>
+            <p className="fieldset-description">One recurring registration for each jurisdiction.</p>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => setForm((current) => ({
+                ...current,
+                salesTaxRegistrations: [
+                  ...current.salesTaxRegistrations,
+                  emptySalesTaxRegistration(),
+                ],
+              }))}
+            >
+              Add Sales Tax Registration
+            </button>
           </div>
 
-          {form.salesTaxEnabled && (
-            <div className="field-grid two-columns">
-              <label>
-                <span>Frequency</span>
-                <select
-                  value={form.salesTaxFrequency}
-                  onChange={(event) =>
-                    update("salesTaxFrequency", event.target.value as SalesTaxFrequency)
-                  }
-                >
-                  <option value="monthly">Monthly</option>
-                  <option value="quarterly">Quarterly</option>
-                </select>
-              </label>
-              <label>
-                <span>Next due date</span>
-                <input
-                  type="date"
-                  value={form.salesTaxNextDueDate}
-                  onChange={(event) => update("salesTaxNextDueDate", event.target.value)}
-                  required
-                />
-              </label>
+          {form.salesTaxRegistrations.length === 0 ? (
+            <p className="configuration-empty">No Sales Tax Registrations configured.</p>
+          ) : (
+            <div className="configuration-list">
+              {form.salesTaxRegistrations.map((registration, index) => (
+                <section className="configuration-row" key={registration.key}>
+                  <header className="configuration-heading">
+                    <div>
+                      <span>Registration {String(index + 1).padStart(2, "0")}</span>
+                      <strong>{registration.jurisdiction || "New registration"}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className="button delete-action"
+                      onClick={() => setForm((current) => ({
+                        ...current,
+                        salesTaxRegistrations: current.salesTaxRegistrations.filter(
+                          (_, registrationIndex) => registrationIndex !== index,
+                        ),
+                      }))}
+                    >
+                      {registration.id ? "Archive" : "Remove"}
+                    </button>
+                  </header>
+                  <div className="field-grid two-columns">
+                    <label>
+                      <span>Jurisdiction</span>
+                      <input
+                        value={registration.jurisdiction}
+                        onChange={(event) => updateSalesTax(index, {
+                          jurisdiction: event.target.value,
+                        })}
+                        placeholder="FL"
+                        required
+                      />
+                    </label>
+                    <label>
+                      <span>Frequency</span>
+                      <select
+                        value={registration.frequency}
+                        onChange={(event) => updateSalesTax(index, {
+                          frequency: event.target.value as SalesTaxFrequency,
+                        })}
+                      >
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Next due date</span>
+                      <input
+                        type="date"
+                        value={registration.next_due_date}
+                        onChange={(event) => updateSalesTax(index, {
+                          next_due_date: event.target.value,
+                        })}
+                        required
+                      />
+                    </label>
+                  </div>
+                </section>
+              ))}
             </div>
           )}
         </fieldset>
 
         <div className="form-actions">
-          <button type="button" className="button secondary" onClick={onCancel}>
-            Cancel
-          </button>
+          <button type="button" className="button secondary" onClick={onCancel}>Cancel</button>
           <button type="submit" className="button primary" disabled={saving}>
             {saving ? "Saving…" : "Save client"}
           </button>

@@ -7,7 +7,10 @@ PayrollFrequency = Literal["weekly", "biweekly", "semi_monthly", "monthly"]
 SalesTaxFrequency = Literal["monthly", "quarterly"]
 
 
-class PayrollProfileInput(BaseModel):
+class PayrollScheduleInput(BaseModel):
+    id: int | None = None
+    label: str = Field(min_length=1, max_length=100)
+    jurisdiction: str = Field(min_length=1, max_length=20)
     sui_id: str | None = None
     sit_id: str | None = None
     principal_owner: str | None = None
@@ -28,7 +31,9 @@ class PayrollProfileInput(BaseModel):
         return self
 
 
-class SalesTaxProfileInput(BaseModel):
+class SalesTaxRegistrationInput(BaseModel):
+    id: int | None = None
+    jurisdiction: str = Field(min_length=1, max_length=20)
     frequency: SalesTaxFrequency
     next_due_date: date
 
@@ -36,15 +41,15 @@ class SalesTaxProfileInput(BaseModel):
 class CompanyInput(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     ein: str = Field(min_length=1, max_length=20)
-    payroll: PayrollProfileInput | None = None
-    sales_tax: SalesTaxProfileInput | None = None
+    payroll_schedules: list[PayrollScheduleInput] = Field(default_factory=list)
+    sales_tax_registrations: list[SalesTaxRegistrationInput] = Field(default_factory=list)
 
 
-class PayrollProfileRead(PayrollProfileInput):
+class PayrollScheduleRead(PayrollScheduleInput):
     id: int
 
 
-class SalesTaxProfileRead(SalesTaxProfileInput):
+class SalesTaxRegistrationRead(SalesTaxRegistrationInput):
     id: int
 
 
@@ -52,5 +57,5 @@ class CompanyRead(BaseModel):
     id: int
     name: str
     ein: str
-    payroll: PayrollProfileRead | None
-    sales_tax: SalesTaxProfileRead | None
+    payroll_schedules: list[PayrollScheduleRead]
+    sales_tax_registrations: list[SalesTaxRegistrationRead]

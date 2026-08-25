@@ -8,8 +8,10 @@ export type SalesTaxFrequency =
   | "monthly"
   | "quarterly";
 
-export type PayrollProfile = {
+export type PayrollSchedule = {
   id: number;
+  label: string;
+  jurisdiction: string;
   sui_id: string | null;
   sit_id: string | null;
   principal_owner: string | null;
@@ -21,8 +23,9 @@ export type PayrollProfile = {
   semi_monthly_day_2: number | null;
 };
 
-export type SalesTaxProfile = {
+export type SalesTaxRegistration = {
   id: number;
+  jurisdiction: string;
   frequency: SalesTaxFrequency;
   next_due_date: string;
 };
@@ -31,15 +34,18 @@ export type Company = {
   id: number;
   name: string;
   ein: string;
-  payroll: PayrollProfile | null;
-  sales_tax: SalesTaxProfile | null;
+  payroll_schedules: PayrollSchedule[];
+  sales_tax_registrations: SalesTaxRegistration[];
 };
+
+export type PayrollScheduleInput = Omit<PayrollSchedule, "id"> & { id?: number };
+export type SalesTaxRegistrationInput = Omit<SalesTaxRegistration, "id"> & { id?: number };
 
 export type CompanyPayload = {
   name: string;
   ein: string;
-  payroll: Omit<PayrollProfile, "id"> | null;
-  sales_tax: Omit<SalesTaxProfile, "id"> | null;
+  payroll_schedules: PayrollScheduleInput[];
+  sales_tax_registrations: SalesTaxRegistrationInput[];
 };
 
 export type TaskStatus = "pending" | "in_progress" | "completed";
@@ -48,6 +54,8 @@ export type Task = {
   id: number;
   company_name: string;
   task_type: "payroll" | "sales_tax";
+  source_label: string | null;
+  source_jurisdiction: string;
   process_date: string | null;
   pay_date: string | null;
   due_date: string | null;

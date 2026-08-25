@@ -98,9 +98,12 @@ function ClientsView() {
             <span>Actions</span>
           </div>
           {companies.map((company) => {
-            const services = [company.payroll && "Payroll", company.sales_tax && "Sales Tax"]
-              .filter(Boolean)
-              .join(" · ");
+            const payrollCount = company.payroll_schedules.length;
+            const salesTaxCount = company.sales_tax_registrations.length;
+            const services = [
+              payrollCount > 0 && `${payrollCount} Payroll`,
+              salesTaxCount > 0 && `${salesTaxCount} Sales Tax`,
+            ].filter(Boolean).join(" · ");
 
             return (
               <article className="client-row" key={company.id}>
@@ -116,18 +119,26 @@ function ClientsView() {
 
                 <div className="client-cell client-platform">
                   <span className="client-cell-label">Payroll platform</span>
-                  <strong>{company.payroll?.payroll_platform ?? "—"}</strong>
+                  <strong>
+                    {[...new Set(company.payroll_schedules.map((item) => item.payroll_platform))]
+                      .join(" · ") || "—"}
+                  </strong>
                 </div>
 
                 <div className="client-cell client-frequency">
                   <span className="client-cell-label">Frequency</span>
-                  {company.payroll && (
-                    <p><small>Payroll</small>{formatFrequency(company.payroll.frequency)}</p>
-                  )}
-                  {company.sales_tax && (
-                    <p><small>Sales Tax</small>{formatFrequency(company.sales_tax.frequency)}</p>
-                  )}
-                  {!company.payroll && !company.sales_tax && <strong>—</strong>}
+                  {company.payroll_schedules.map((schedule) => (
+                    <p key={`payroll-${schedule.id}`}>
+                      <small>{schedule.jurisdiction}</small>{formatFrequency(schedule.frequency)}
+                    </p>
+                  ))}
+                  {company.sales_tax_registrations.map((registration) => (
+                    <p key={`sales-tax-${registration.id}`}>
+                      <small>{registration.jurisdiction}</small>
+                      {formatFrequency(registration.frequency)}
+                    </p>
+                  ))}
+                  {payrollCount === 0 && salesTaxCount === 0 && <strong>—</strong>}
                 </div>
 
                 <div className="client-actions">

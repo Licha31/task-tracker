@@ -26,7 +26,12 @@ def test_login_session_refresh_and_logout(api_client):
 
 def test_admin_endpoints_and_status_update_require_authentication(api_client):
     client, test_session = api_client
-    payload = {"name": "Apex Builders", "ein": "12-3456789", "payroll": None, "sales_tax": None}
+    payload = {
+        "name": "Apex Builders",
+        "ein": "12-3456789",
+        "payroll_schedules": [],
+        "sales_tax_registrations": [],
+    }
 
     protected_requests = [
         ("get", "/api/clients", None),
@@ -59,12 +64,15 @@ def test_admin_endpoints_and_status_update_require_authentication(api_client):
         db.execute(
             text(
                 """
-                INSERT INTO tasks (company_id, task_type, due_date, status)
-                VALUES (:company_id, 'sales_tax', '2026-08-20', 'pending')
+                INSERT INTO sales_tax_registrations (
+                    company_id, jurisdiction, frequency, next_due_date, active
+                ) VALUES (:company_id, 'FL', 'monthly', '2026-08-20', TRUE)
                 """
             ),
             {"company_id": company_id},
         )
+
+    client.get("/api/tasks?week_start=2026-08-17&week_end=2026-08-23")
 
     task_id = client.get("/api/tasks?week_start=2026-08-17&week_end=2026-08-23").json()[0]["id"]
     updated = client.patch(f"/api/tasks/{task_id}", json={"status": "completed"})

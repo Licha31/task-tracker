@@ -316,6 +316,20 @@ input:focus-visible {
 
 .task-company h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.task-source,
+.detail-source {
+  margin: 7px 0 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .task-kind {
   flex-shrink: 0;
   font-family: "IBM Plex Mono", monospace;
@@ -456,6 +470,7 @@ select:hover, input:hover { border-color: rgba(153, 217, 186, 0.4); }
 .detail-list { display: grid; }
 .detail-task { padding: 22px; border-bottom: 1px solid var(--line); }
 .detail-task h3 { margin: 8px 0 0; color: var(--text-primary); font-size: 1.05rem; font-weight: 700; }
+.detail-source { color: var(--text-secondary); }
 .detail-task dl { display: grid; gap: 13px; margin: 18px 0 0; }
 .detail-task dl div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .detail-task dt { color: var(--text-tertiary); font-family: "IBM Plex Mono", monospace; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
@@ -499,6 +514,7 @@ fieldset { margin: 0; padding: 24px 0 28px; border: 0; border-bottom: 1px solid 
 legend { margin-bottom: 20px; padding: 0; color: var(--text-primary); font-size: 1.05rem; font-weight: 700; }
 .fieldset-title-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
 .fieldset-title-row legend { margin: 0; }
+.fieldset-description { margin: 0; color: var(--text-tertiary); font-size: 0.92rem; }
 .field-grid { display: grid; gap: 22px; }
 .two-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 label span { display: block; margin-bottom: 8px; color: var(--text-secondary); font-family: "IBM Plex Mono", monospace; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.035em; text-transform: uppercase; }
@@ -507,6 +523,37 @@ label input, label select { width: 100%; }
 .toggle-label input { width: 17px; height: 17px; min-height: auto; accent-color: var(--mint); }
 .toggle-label span { margin: 0; color: var(--text-secondary); }
 .form-actions, .login-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; }
+
+.configuration-list { border-top: 1px solid var(--line); }
+.configuration-row { padding: 24px 0 28px; border-bottom: 1px solid var(--line-soft); }
+.configuration-row:last-child { padding-bottom: 4px; border-bottom: 0; }
+.configuration-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.configuration-heading div { min-width: 0; }
+.configuration-heading span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--mint);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.configuration-heading strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.configuration-empty { margin: 0; padding: 22px 0; color: var(--text-tertiary); }
 
 .form-error {
   margin: 12px 0;
@@ -612,6 +659,8 @@ label input, label select { width: 100%; }
   .client-cell-label { display: block; margin-bottom: 6px; color: var(--text-tertiary); font-family: "IBM Plex Mono", monospace; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
   .client-actions { justify-content: flex-start; }
   .two-columns, .detail-list { grid-template-columns: 1fr; }
+  .fieldset-title-row { align-items: stretch; flex-direction: column; }
+  .fieldset-title-row .button { width: 100%; }
   .detail-task:nth-child(odd) { border-right: 0; }
   fieldset { padding-top: 20px; }
   .calendar-grid { grid-template-columns: repeat(7, minmax(118px, 1fr)); min-width: 826px; }

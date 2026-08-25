@@ -11,10 +11,12 @@ def test_calendar_range_uses_process_and_due_dates_without_duplicates(api_client
         db.execute(
             text(
                 """
-                INSERT INTO payroll_profiles (
-                    company_id, frequency, payroll_platform, next_pay_date, next_process_date
+                INSERT INTO payroll_schedules (
+                    company_id, label, jurisdiction, frequency, payroll_platform,
+                    next_pay_date, next_process_date, active
                 ) VALUES (
-                    :company_id, 'weekly', 'Gusto', '2026-08-07', '2026-08-03'
+                    :company_id, 'Employees', 'FL', 'weekly', 'Gusto',
+                    '2026-08-07', '2026-08-03', TRUE
                 )
                 """
             ),
@@ -23,8 +25,9 @@ def test_calendar_range_uses_process_and_due_dates_without_duplicates(api_client
         db.execute(
             text(
                 """
-                INSERT INTO sales_tax_profiles (company_id, frequency, next_due_date)
-                VALUES (:company_id, 'monthly', '2026-08-20')
+                INSERT INTO sales_tax_registrations (
+                    company_id, jurisdiction, frequency, next_due_date, active
+                ) VALUES (:company_id, 'GA', 'monthly', '2026-08-20', TRUE)
                 """
             ),
             {"company_id": company_id},
@@ -37,10 +40,17 @@ def test_calendar_range_uses_process_and_due_dates_without_duplicates(api_client
     assert first_response.status_code == 200
     tasks = first_response.json()
     assert any(
-        task["task_type"] == "payroll" and task["process_date"] == "2026-08-03" for task in tasks
+        task["task_type"] == "payroll"
+        and task["process_date"] == "2026-08-03"
+        and task["source_label"] == "Employees"
+        and task["source_jurisdiction"] == "FL"
+        for task in tasks
     )
     assert any(
-        task["task_type"] == "sales_tax" and task["due_date"] == "2026-08-20" for task in tasks
+        task["task_type"] == "sales_tax"
+        and task["due_date"] == "2026-08-20"
+        and task["source_jurisdiction"] == "GA"
+        for task in tasks
     )
     assert len(second_response.json()) == len(tasks)
 

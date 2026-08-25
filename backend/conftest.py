@@ -32,6 +32,7 @@ def api_client(tmp_path, monkeypatch) -> Iterator[tuple[TestClient, sessionmaker
 
     test_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(bind=engine)
+
     def override_get_db():
         db = test_session()
         try:

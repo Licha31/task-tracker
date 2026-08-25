@@ -24,12 +24,9 @@ def parse_date(value: date | str) -> date:
 
     return date.fromisoformat(value)
 
+
 def months_between(start: date, end: date) -> int:
-    return (
-        (end.year - start.year) * 12
-        + end.month
-        - start.month
-    )
+    return (end.year - start.year) * 12 + end.month - start.month
 
 
 def insert_task_if_missing(db: Session, values: dict[str, object]) -> None:
@@ -41,25 +38,32 @@ def insert_task_if_missing(db: Session, values: dict[str, object]) -> None:
     else:
         raise RuntimeError(f"Unsupported database dialect: {dialect_name}")
     db.execute(statement)
-    
+
+
 def generate_payroll_tasks(
     db: Session,
     week_end: date,
 ) -> None:
-    profiles = db.execute(
-        text(
-            """
+    profiles = (
+        db.execute(
+            text(
+                """
             SELECT
-                payroll_profiles.company_id,
-                payroll_profiles.frequency,
-                payroll_profiles.next_pay_date,
-                payroll_profiles.next_process_date,
-                payroll_profiles.semi_monthly_day_1,
-                payroll_profiles.semi_monthly_day_2
-            FROM payroll_profiles
+                payroll_schedules.id,
+                payroll_schedules.company_id,
+                payroll_schedules.frequency,
+                payroll_schedules.next_pay_date,
+                payroll_schedules.next_process_date,
+                payroll_schedules.semi_monthly_day_1,
+                payroll_schedules.semi_monthly_day_2
+            FROM payroll_schedules
+            WHERE payroll_schedules.active = TRUE
             """
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     for profile in profiles:
         anchor_pay_date = parse_date(profile["next_pay_date"])
@@ -71,9 +75,7 @@ def generate_payroll_tasks(
         frequency = profile["frequency"]
 
         if frequency == "weekly":
-            occurrences = (
-                (week_end - anchor_process_date).days // 7
-            ) + 2
+            occurrences = ((week_end - anchor_process_date).days // 7) + 2
 
             dates = generate_weekly_payroll_dates(
                 anchor_pay_date,
@@ -82,9 +84,7 @@ def generate_payroll_tasks(
             )
 
         elif frequency == "biweekly":
-            occurrences = (
-                (week_end - anchor_process_date).days // 14
-            ) + 2
+            occurrences = ((week_end - anchor_process_date).days // 14) + 2
 
             dates = generate_biweekly_payroll_dates(
                 anchor_pay_date,
@@ -93,10 +93,7 @@ def generate_payroll_tasks(
             )
 
         elif frequency == "monthly":
-            occurrences = (
-                months_between(anchor_pay_date, week_end)
-                + 2
-            )
+            occurrences = months_between(anchor_pay_date, week_end) + 2
 
             dates = generate_monthly_payroll_dates(
                 anchor_pay_date,
@@ -111,10 +108,7 @@ def generate_payroll_tasks(
             if day_1 is None or day_2 is None:
                 continue
 
-            occurrences = (
-                months_between(anchor_pay_date, week_end) * 2
-                + 4
-            )
+            occurrences = months_between(anchor_pay_date, week_end) * 2 + 4
 
             dates = generate_semi_monthly_payroll_dates(
                 start_date=anchor_pay_date,
@@ -135,28 +129,36 @@ def generate_payroll_tasks(
                 db,
                 {
                     "company_id": profile["company_id"],
+                    "payroll_schedule_id": profile["id"],
                     "task_type": "payroll",
                     "process_date": process_date,
                     "pay_date": pay_date,
                     "status": "pending",
                 },
             )
-            
+
+
 def generate_sales_tax_tasks(
     db: Session,
     week_end: date,
 ) -> None:
-    profiles = db.execute(
-        text(
-            """
+    profiles = (
+        db.execute(
+            text(
+                """
             SELECT
+                id,
                 company_id,
                 frequency,
                 next_due_date
-            FROM sales_tax_profiles
+            FROM sales_tax_registrations
+            WHERE active = TRUE
             """
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     for profile in profiles:
         anchor_due_date = parse_date(profile["next_due_date"])
@@ -165,10 +167,7 @@ def generate_sales_tax_tasks(
             continue
 
         if profile["frequency"] == "monthly":
-            occurrences = (
-                months_between(anchor_due_date, week_end)
-                + 2
-            )
+            occurrences = months_between(anchor_due_date, week_end) + 2
 
             dates = generate_monthly_sales_tax_dates(
                 anchor_due_date,
@@ -199,11 +198,13 @@ def generate_sales_tax_tasks(
                 db,
                 {
                     "company_id": profile["company_id"],
+                    "sales_tax_registration_id": profile["id"],
                     "task_type": "sales_tax",
                     "due_date": due_date,
                     "status": "pending",
                 },
             )
+
 
 def ensure_tasks_until(
     db: Session,

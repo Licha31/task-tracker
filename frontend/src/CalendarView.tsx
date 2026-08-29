@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { getTasks } from "./api";
+import { downloadMonthlyPdf, getTasks } from "./api";
 import { addDays, formatDateForApi, formatShortDate, startOfWeek } from "./dateUtils";
 import type { Task, TaskStatus } from "./types";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+export function monthlyPdfSelection(displayedMonth: Date): [number, number] {
+  return [displayedMonth.getFullYear(), displayedMonth.getMonth() + 1];
+}
 
 function statusLabel(status: TaskStatus) {
   return status === "in_progress"
@@ -25,6 +29,7 @@ function CalendarView() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   const gridStart = useMemo(() => startOfWeek(month), [month]);
   const days = useMemo(() => Array.from({ length: 42 }, (_, index) => addDays(gridStart, index)), [gridStart]);
@@ -60,6 +65,19 @@ function CalendarView() {
     setSelectedDate(formatDateForApi(next));
   }
 
+  async function handlePdfDownload() {
+    setDownloading(true);
+    setError("");
+    try {
+      const [year, monthNumber] = monthlyPdfSelection(month);
+      await downloadMonthlyPdf(year, monthNumber);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not download the monthly PDF.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <section>
       <header className="page-header calendar-header">
@@ -69,7 +87,15 @@ function CalendarView() {
             {new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(month)}
           </p>
         </div>
-        <div className="period-navigation">
+        <div className="period-navigation calendar-actions">
+          <button
+            type="button"
+            className="download-action"
+            disabled={downloading}
+            onClick={() => void handlePdfDownload()}
+          >
+            {downloading ? "Preparing PDF…" : "Download monthly PDF"}
+          </button>
           <button type="button" onClick={() => changeMonth(-1)}>← Previous Month</button>
           <button type="button" onClick={() => changeMonth(1)}>Next Month →</button>
         </div>

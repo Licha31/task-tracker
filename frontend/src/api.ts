@@ -52,6 +52,39 @@ export function getTasks(start: string, end: string) {
   return request<Task[]>(`/tasks?${params}`);
 }
 
+export async function downloadMonthlyPdf(year: number, month: number) {
+  const params = new URLSearchParams({
+    year: String(year),
+    month: String(month),
+  });
+  const response = await fetch(`${API_URL}/tasks/monthly-pdf?${params}`, {
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new Error(body?.detail ?? "Could not download the monthly PDF.");
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const fallbackFilename = `task-schedule-${year}-${String(month).padStart(2, "0")}.pdf`;
+  const disposition = response.headers.get("Content-Disposition");
+  const filename = disposition?.match(/filename="?([^";]+)"?/i)?.[1] ?? fallbackFilename;
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  link.hidden = true;
+  document.body.appendChild(link);
+
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 export function updateTaskStatus(id: number, status: TaskStatus) {
   return request<{ id: number; status: TaskStatus }>(`/tasks/${id}`, {
     method: "PATCH",

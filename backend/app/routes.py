@@ -1,16 +1,16 @@
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
-from sqlalchemy import insert, text
+from sqlalchemy import delete, func, insert, select, text
 from sqlalchemy.orm import Session
 
 from app.auth import password_is_valid, require_admin
 from app.database import get_db
-from app.models import Company
+from app.models import Company, PayrollSchedule, Task
 from app.monthly_pdf import month_bounds, prepare_monthly_tasks, render_monthly_pdf
 from app.schemas import CompanyInput, CompanyRead
-from app.task_generation import ensure_tasks_until
+from app.task_generation import ensure_tasks_until, generate_payroll_tasks
 from app.task_queries import get_tasks_for_range
 
 router = APIRouter(prefix="/api")
@@ -122,15 +122,31 @@ def normalized_text(value: str) -> str:
     return value.strip()
 
 
-def reconcile_payroll_schedules(db: Session, company_id: int, schedules) -> None:
-    active_ids = set(
-        db.execute(
-            text(
-                "SELECT id FROM payroll_schedules WHERE company_id = :company_id AND active = TRUE"
-            ),
-            {"company_id": company_id},
-        ).scalars()
-    )
+PAYROLL_RECURRENCE_FIELDS = (
+    "frequency",
+    "next_pay_date",
+    "next_process_date",
+    "semi_monthly_day_1",
+    "semi_monthly_day_2",
+)
+
+
+def reconcile_payroll_schedules(
+    db: Session,
+    company_id: int,
+    schedules,
+    today: date | None = None,
+) -> None:
+    today = today or datetime.now().astimezone().date()
+    active_schedules = db.scalars(
+        select(PayrollSchedule).where(
+            PayrollSchedule.company_id == company_id,
+            PayrollSchedule.active.is_(True),
+        )
+    ).all()
+    active_by_id = {schedule.id: schedule for schedule in active_schedules}
+    active_ids = set(active_by_id)
+    regeneration_horizons: list[tuple[int, date]] = []
     supplied_ids = [schedule.id for schedule in schedules if schedule.id is not None]
     if len(supplied_ids) != len(set(supplied_ids)):
         raise HTTPException(status_code=422, detail="Duplicate Payroll Schedule ID")
@@ -172,6 +188,31 @@ def reconcile_payroll_schedules(db: Session, company_id: int, schedules) -> None
                 values,
             )
         else:
+            existing_schedule = active_by_id[schedule.id]
+            recurrence_changed = any(
+                getattr(existing_schedule, field) != values[field]
+                for field in PAYROLL_RECURRENCE_FIELDS
+            )
+
+            if recurrence_changed:
+                future_horizon = db.scalar(
+                    select(func.max(Task.process_date)).where(
+                        Task.task_type == "payroll",
+                        Task.payroll_schedule_id == schedule.id,
+                        Task.process_date > today,
+                    )
+                )
+                db.execute(
+                    delete(Task).where(
+                        Task.task_type == "payroll",
+                        Task.payroll_schedule_id == schedule.id,
+                        Task.process_date > today,
+                        Task.status == "pending",
+                    )
+                )
+                if future_horizon is not None:
+                    regeneration_horizons.append((schedule.id, future_horizon))
+
             db.execute(
                 text(
                     """
@@ -192,6 +233,14 @@ def reconcile_payroll_schedules(db: Session, company_id: int, schedules) -> None
                 ),
                 {**values, "schedule_id": schedule.id},
             )
+
+    for schedule_id, future_horizon in regeneration_horizons:
+        generate_payroll_tasks(
+            db,
+            future_horizon,
+            payroll_schedule_id=schedule_id,
+            process_date_after=today,
+        )
 
     for schedule_id in active_ids - set(supplied_ids):
         db.execute(

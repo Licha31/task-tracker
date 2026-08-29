@@ -43,11 +43,19 @@ def insert_task_if_missing(db: Session, values: dict[str, object]) -> None:
 def generate_payroll_tasks(
     db: Session,
     week_end: date,
+    payroll_schedule_id: int | None = None,
+    process_date_after: date | None = None,
 ) -> None:
+    schedule_filter = ""
+    params: dict[str, object] = {}
+    if payroll_schedule_id is not None:
+        schedule_filter = " AND payroll_schedules.id = :payroll_schedule_id"
+        params["payroll_schedule_id"] = payroll_schedule_id
+
     profiles = (
         db.execute(
             text(
-                """
+                f"""
             SELECT
                 payroll_schedules.id,
                 payroll_schedules.company_id,
@@ -58,8 +66,10 @@ def generate_payroll_tasks(
                 payroll_schedules.semi_monthly_day_2
             FROM payroll_schedules
             WHERE payroll_schedules.active = TRUE
+            {schedule_filter}
             """
-            )
+            ),
+            params,
         )
         .mappings()
         .all()
@@ -123,6 +133,8 @@ def generate_payroll_tasks(
 
         for process_date, pay_date in dates:
             if process_date > week_end:
+                continue
+            if process_date_after is not None and process_date <= process_date_after:
                 continue
 
             insert_task_if_missing(

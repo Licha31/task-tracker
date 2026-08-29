@@ -12,6 +12,7 @@ dependencies = [
     "psycopg[binary]>=3.3.2",
     "sqlalchemy>=2.0.52",
     "uvicorn>=0.52.4",
+    "reportlab>=5.0.1",
 ]
 
 [dependency-groups]

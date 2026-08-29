@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import insert, text
 from sqlalchemy.orm import Session
@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 from app.auth import password_is_valid, require_admin
 from app.database import get_db
 from app.models import Company
+from app.monthly_pdf import month_bounds, prepare_monthly_tasks, render_monthly_pdf
 from app.schemas import CompanyInput, CompanyRead
 from app.task_generation import ensure_tasks_until
+from app.task_queries import get_tasks_for_range
 
 router = APIRouter(prefix="/api")
 
@@ -279,40 +281,24 @@ def update_task_status(
 @router.get("/tasks")
 def list_tasks(week_start: date, week_end: date, db: Session = Depends(get_db)):
     ensure_tasks_until(db, week_end)
-    statement = text(
-        """
-        SELECT
-            tasks.id,
-            companies.name AS company_name,
-            tasks.task_type,
-            payroll_schedules.label AS source_label,
-            COALESCE(
-                payroll_schedules.jurisdiction,
-                sales_tax_registrations.jurisdiction
-            ) AS source_jurisdiction,
-            tasks.process_date,
-            tasks.pay_date,
-            tasks.due_date,
-            tasks.status
-        FROM tasks
-        JOIN companies ON tasks.company_id = companies.id
-        LEFT JOIN payroll_schedules ON tasks.payroll_schedule_id = payroll_schedules.id
-        LEFT JOIN sales_tax_registrations
-            ON tasks.sales_tax_registration_id = sales_tax_registrations.id
-        WHERE
-            (tasks.task_type = 'payroll' AND tasks.process_date BETWEEN :week_start AND :week_end)
-            OR
-            (tasks.task_type = 'sales_tax' AND tasks.due_date BETWEEN :week_start AND :week_end)
-        ORDER BY COALESCE(tasks.process_date, tasks.due_date), tasks.id
-        """
-    )
-    return (
-        db.execute(
-            statement,
-            {"week_start": week_start, "week_end": week_end},
-        )
-        .mappings()
-        .all()
+    return get_tasks_for_range(db, week_start, week_end)
+
+
+@router.get("/tasks/monthly-pdf")
+def download_monthly_pdf(
+    year: int = Query(ge=1, le=9999),
+    month: int = Query(ge=1, le=12),
+    db: Session = Depends(get_db),
+):
+    _, month_end = month_bounds(year, month)
+    ensure_tasks_until(db, month_end)
+    printable_tasks = prepare_monthly_tasks(db, year, month)
+    pdf = render_monthly_pdf(printable_tasks, year, month)
+    filename = f"task-schedule-{year:04d}-{month:02d}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

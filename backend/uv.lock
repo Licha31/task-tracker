@@ -628,11 +628,15 @@ dependencies = [
     { name = "fastapi" },
     { name = "holidays" },
     { name = "itsdangerous" },
-    { name = "psycopg", extra = ["binary"] },
     { name = "python-dateutil" },
     { name = "reportlab" },
     { name = "sqlalchemy" },
     { name = "uvicorn" },
+]
+
+[package.optional-dependencies]
+migration = [
+    { name = "psycopg", extra = ["binary"] },
 ]
 
 [package.dev-dependencies]
@@ -648,12 +652,13 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "holidays", specifier = ">=0.103" },
     { name = "itsdangerous", specifier = ">=2.2" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.2" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'migration'", specifier = ">=3.3.2" },
     { name = "python-dateutil", specifier = ">=2.9.0.post0" },
     { name = "reportlab", specifier = ">=5.0.1" },
     { name = "sqlalchemy", specifier = ">=2.0.52" },
     { name = "uvicorn", specifier = ">=0.52.4" },
 ]
+provides-extras = ["migration"]
 
 [package.metadata.requires-dev]
 dev = [

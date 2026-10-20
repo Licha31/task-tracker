@@ -1,7 +1,25 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { downloadMonthlyPdf } from "./api";
+import { downloadMonthlyPdf, getAuthSession } from "./api";
+
+it("uses the same-origin API by default", async () => {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: vi.fn().mockResolvedValue({ authenticated: false }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    await getAuthSession();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/session",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 describe("downloadMonthlyPdf", () => {
   afterEach(() => {
@@ -27,7 +45,7 @@ describe("downloadMonthlyPdf", () => {
     await downloadMonthlyPdf(2026, 9);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/tasks/monthly-pdf?year=2026&month=9"),
+      "/api/tasks/monthly-pdf?year=2026&month=9",
       { credentials: "include" },
     );
     expect(createObjectURL).toHaveBeenCalledWith(blob);

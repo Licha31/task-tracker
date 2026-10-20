@@ -21,6 +21,8 @@ Thumbs.db
 
 # Local database
 backend/payroll_tracker.db
+backend/payroll_tracker.db-*
+backups/
 
 # Accidental Node artifacts in backend
 backend/package-lock.json

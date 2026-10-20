@@ -1,186 +1,118 @@
 # Task Tracker
 
-Simple internal tracker for weekly Payroll and Sales Tax work.
+Task Tracker runs on one computer at <http://127.0.0.1:8000>. One FastAPI process serves the built React interface and `/api/*`, with `backend/payroll_tracker.db` as the live SQLite database. Daily use needs no Node process, PostgreSQL server, Docker, Railway connection, or internet access. Admin and Guest access work as before.
 
-## Stack
+## First setup
 
-- Frontend: React + TypeScript + Vite
-- Backend: Python + FastAPI
-- Database: SQLite for local development; PostgreSQL for production
-- Database access: explicit SQL through SQLAlchemy sessions
+These commands use Linux or WSL from the repository root. Install Python 3.14+, [uv](https://docs.astral.sh/uv/), and Node.js/npm. Node is needed to build the interface, not to run the app each day.
 
-The project follows a SQL-first learning approach: understand the SQL operation first, then see how Python executes it.
-
-## Current MVP
-
-- Weekly Tracker
-  - Current week by default
-  - Previous / next week navigation
-  - All / Payroll / Sales Tax filters
-  - Pending / In Progress / Completed status
-  - Status changes persist in SQLite
-- Client CRUD
-  - List clients
-  - Add client
-  - Edit client
-  - Delete client
-- Payroll Schedules (zero or many per company)
-  - User-defined label
-  - Jurisdiction
-  - SUI ID
-  - SIT ID
-  - Principal owner
-  - Frequency: Weekly, Biweekly, Semi-monthly, Monthly
-  - Payroll platform
-  - Next process date
-  - Next pay date
-  - Configurable Semi-monthly pay days
-- Sales Tax Registrations (zero or many per company)
-  - Jurisdiction
-  - Frequency: Monthly or Quarterly
-  - Next due date
-- Automatic task generation from client profiles
-- U.S. weekends and federal holidays considered for Payroll business-day calculations
-
-## Project structure
-
-```text
-backend/   FastAPI API, scheduling logic, SQL access and database configuration
-frontend/  React + TypeScript UI
+```bash
+git clone <your-repository-url>
+cd task-tracker
+cp backend/.env.example backend/.env
 ```
 
-## Run locally
+Edit `backend/.env` and set a private `ADMIN_PASSWORD` and long random `ADMIN_SESSION_SECRET`. Keep `ENVIRONMENT=development` for the local HTTP cookie. The file is gitignored. Leave `DATABASE_URL` unset; the app uses `backend/payroll_tracker.db` regardless of the launch directory.
 
-Open two PowerShell terminals from the project root.
-
-Copy the example environment files and set local values. Keep real secrets out of source control.
-
-### Backend
-
-```powershell
-cd .\backend
-Copy-Item .env.example .env
-$env:ADMIN_PASSWORD = "your-local-admin-password"
-$env:ADMIN_SESSION_SECRET = "a-long-random-local-secret"
+```bash
+cd backend
 uv sync
-uv run uvicorn app.main:app --reload
-```
-
-API: `http://localhost:8000`
-
-Docs: `http://localhost:8000/docs`
-
-The backend reads `DATABASE_URL`. When it is unset outside production it defaults to
-`sqlite:///./payroll_tracker.db`, so the existing `backend/payroll_tracker.db` remains the local
-development database when the backend is started from `backend/`. You may explicitly set another
-SQLite or PostgreSQL URL when needed.
-
-Create or update a local schema explicitly before starting the API:
-
-```powershell
 uv run alembic upgrade head
-```
-
-Application startup does not create or migrate database objects.
-
-### Frontend
-
-```powershell
-cd .\frontend
-Copy-Item .env.example .env
+cd ../frontend
 npm install
-npm run dev
+npm run build
+cd ..
 ```
 
-Frontend: `http://localhost:5173`
+The Alembic command creates or upgrades the SQLite schema. Application startup never runs migrations. For an existing production database, use the one-time import below instead of initializing an empty live database. Do not delete an existing `backend/payroll_tracker.db`.
 
-Use `localhost` for both local services. Mixing `localhost` and `127.0.0.1` makes the browser treat the session cookie as cross-site, so authenticated API requests will not carry it with the default `SameSite=lax` setting.
+## Daily use
 
-## Deployment configuration
+From the repository root:
 
-Backend variables:
-
-- `DATABASE_URL`: required in production. Set this to Railway's PostgreSQL connection string. Both
-  `postgres://` and `postgresql://` URLs are normalized to SQLAlchemy's psycopg 3 driver.
-- `ADMIN_PASSWORD`: the Admin password, validated only by FastAPI.
-- `ADMIN_SESSION_SECRET`: a long random value used to sign the 12-hour Admin session.
-- `ENVIRONMENT`: set to `production` on Railway so the session cookie uses `Secure`.
-- `FRONTEND_ORIGINS`: comma-separated frontend origins allowed by CORS.
-- `ADMIN_COOKIE_SAMESITE`: defaults to `lax`. Use `none` with `ENVIRONMENT=production` only when the frontend and backend are deployed on different sites.
-
-Production does not use or require a local database file. Schema changes are managed explicitly
-with Alembic and are never run automatically by application startup.
-
-Frontend variable:
-
-- `VITE_API_URL`: full backend API URL, including `/api`.
-
-The Admin session is stored in a signed, HttpOnly cookie. Guest access is read-only; client CRUD and task status changes require an authenticated Admin session.
-
-## First production migration procedure
-
-The existing Railway database predates Alembic. Do not run these commands until the live schema
-and a restorable backup have been reviewed.
-
-1. Put the application into a maintenance window and stop all old application instances. Task
-   reads generate rows, so read traffic must also be stopped.
-2. Create a Railway PostgreSQL backup and verify that it can be restored.
-3. Record row counts for `companies`, `payroll_profiles`, `sales_tax_profiles`, and `tasks`.
-4. Verify the live tables contain every column represented by revision `20260824_01`, including
-   both semi-monthly columns. Verify the two legacy task indexes are present with these definitions:
-   - `uq_tasks_payroll_occurrence` on company/type/process date for Payroll rows.
-   - `uq_tasks_sales_tax_occurrence` on company/type/due date for Sales Tax rows.
-5. Verify these preconditions return zero:
-
-   ```sql
-   SELECT COUNT(*)
-   FROM tasks AS t
-   LEFT JOIN payroll_profiles AS p ON p.company_id = t.company_id
-   WHERE t.task_type = 'payroll' AND p.id IS NULL;
-
-   SELECT COUNT(*)
-   FROM tasks AS t
-   LEFT JOIN sales_tax_profiles AS s ON s.company_id = t.company_id
-   WHERE t.task_type = 'sales_tax' AND s.id IS NULL;
-   ```
-
-6. From `backend/`, with the reviewed Railway `DATABASE_URL` set manually, mark the verified
-   legacy schema and inspect the planned revision state:
-
-   ```powershell
-   uv run alembic stamp 20260824_01
-   uv run alembic current
-   uv run alembic heads
-   ```
-
-7. Run the additive migration manually:
-
-   ```powershell
-   uv run alembic upgrade 20260824_02
-   ```
-
-   The migration aborts if any existing Payroll or Sales Tax task cannot be associated with its
-   one legacy profile. It copies legacy IDs, writes `UNSET` jurisdictions, backfills task source
-   IDs, validates the copy, replaces task occurrence indexes, and resets both PostgreSQL sequences.
-8. Re-run the recorded counts and confirm that every Payroll/Sales Tax task has exactly its matching
-   source ID and that the source belongs to the same company.
-9. Deploy the new application and smoke-test Admin client editing plus Guest/Admin Weekly and
-   Calendar views. Resolve every visible `UNSET` jurisdiction through Admin editing.
-
-Do not include `alembic upgrade` in the Railway start command for this first migration.
-
-## Migration rollback
-
-Before the new application accepts configuration writes, the additive revision can be rolled back:
-
-```powershell
-uv run alembic downgrade 20260824_01
+```bash
+bash scripts/start-local.sh
 ```
 
-The downgrade validates that copied configurations still exactly match the frozen legacy rows and
-that no same-company/date duplicates exist. It refuses to run if edits, archives, or additional
-configurations cannot be represented without loss.
+The launcher loads `backend/.env`, uses the local SQLite database, binds to `127.0.0.1:8000`, and attempts to open a browser. If browser opening fails, visit <http://127.0.0.1:8000>. Stop the server with Ctrl+C. Pass `--no-browser` to skip browser launch. On Windows with a native Python/uv installation, `powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1` offers the same flow. WSL users can use the shell script.
 
-After the new schema accepts writes, do not downgrade or deploy the legacy application. Use a
-forward fix. Restoring the pre-migration backup is the disaster-recovery option only when losing
-all post-backup writes has been explicitly accepted.
+`backend/payroll_tracker.db` is the application's real data. Keep it and its backups safe. The server only listens on this computer by default.
+
+## Development and updates
+
+For frontend development, run `npm run dev` in `frontend/` and set `VITE_API_URL=http://127.0.0.1:8000/api` in `frontend/.env` if needed. Run the backend separately with `uv run uvicorn app.main:app --reload --host 127.0.0.1` from `backend/`, with `backend/.env` loaded into that shell. The normal built frontend defaults to same-origin `/api`; the PDF download uses the same setting. CORS remains available for the separate Vite development server. Admin sessions use a signed, HttpOnly, SameSite=lax cookie over local HTTP.
+
+Checks:
+
+```bash
+cd backend
+uv sync
+uv run pytest
+uv run ruff check .
+uv run alembic upgrade head
+cd ../frontend
+npm install
+npm test
+npm run build
+npm audit
+```
+
+After changing frontend code, run `npm run build` again and restart FastAPI. Daily startup does not install packages, build the frontend, or migrate the database.
+
+To update source, stop the app, back up the database, run `git pull`, `uv sync` in `backend/`, `npm install` in `frontend/` if the lockfile changed, `npm run build` in `frontend/`, and `uv run alembic upgrade head` in `backend/`. Then restart the app. Keep the existing database.
+
+## SQLite backup and restore
+
+Stop the app before copying the SQLite file. From the repository root:
+
+```bash
+bash scripts/backup-db.sh
+```
+
+The script creates a unique `backups/task-tracker-YYYY-MM-DD-HHMMSS.db` file, checks that the source exists, and prints the backup path. `backups/` is gitignored. No automatic schedule or retention is configured.
+
+To restore, stop the app, rename `backend/payroll_tracker.db` to a safety filename, copy the selected backup to `backend/payroll_tracker.db`, then start the app and verify Clients, Weekly, Calendar, and a previously changed status. Keep the safety copy until verification passes.
+
+## One-time PostgreSQL to SQLite import
+
+The importer reads the PostgreSQL source in a read-only, repeatable-read transaction. It builds a separate SQLite file with the existing Alembic revisions, imports companies, schedules, registrations, legacy profiles, and tasks with their IDs, then compares every copied row and runs `PRAGMA foreign_key_check`. It also validates task sources, company ownership, statuses, and relationships. It never writes to PostgreSQL or copies its `alembic_version` row. Stop the app before replacing an existing local database.
+
+Only for the one-time migration, install the optional PostgreSQL driver:
+
+```bash
+cd backend
+uv sync --extra migration
+export SOURCE_DATABASE_URL='postgresql://user:password@host/database'
+uv run --extra migration python -m tools.migrate_postgres_to_sqlite
+unset SOURCE_DATABASE_URL
+```
+
+Supply the source URL privately at execution time, never in a committed file. The command refuses an existing target. Add `--overwrite` only when intentionally replacing it; the importer first writes and verifies a timestamped backup of the existing SQLite file. The imported file is installed only after validation succeeds. The default target is `backend/payroll_tracker.db`; `--target /path/to/file.db` is available for a rehearsal. The source must already use the current application schema. Do not run this command against the live Railway database until the manual checklist below is ready. After migration, `uv sync` without the extra removes the optional PostgreSQL runtime dependency.
+
+## Railway decommission checklist
+
+Railway is not changed by this repository or by the importer. Perform these steps manually:
+
+1. Ensure the latest code is committed and pushed to GitHub.
+2. Create a final `pg_dump` backup from Railway PostgreSQL.
+3. Store the dump somewhere safe.
+4. Stop the Task Tracker app temporarily if necessary to avoid writes during final migration. Reads can generate tasks, so prevent those too.
+5. Run the PostgreSQL to SQLite migration utility with the explicit source URL.
+6. Confirm migration validation passes.
+7. Compare source and target row counts for every copied table.
+8. Start the self-hosted application.
+9. Verify Admin login.
+10. Verify Clients and client editing.
+11. Verify Weekly.
+12. Verify Calendar.
+13. Verify multiple Payroll schedules.
+14. Verify multiple Sales Tax jurisdictions.
+15. Change one task status.
+16. Restart the local application.
+17. Confirm the changed status persisted.
+18. Generate a monthly PDF.
+19. Verify the PDF contents.
+20. Create the first SQLite backup.
+21. Use the local application for a short validation period.
+22. Only after all checks pass, manually stop or delete the Railway frontend, backend, and PostgreSQL services.
+23. Keep the final PostgreSQL dump for disaster recovery.

@@ -1,7 +1,7 @@
 import type { Company, CompanyPayload, Task, TaskStatus } from "./types";
 
 const API_URL = (
-  import.meta.env.VITE_API_URL ?? "http://localhost:8000/api"
+  import.meta.env.VITE_API_URL ?? "/api"
 ).replace(/\/$/, "");
 
 async function request<T>(

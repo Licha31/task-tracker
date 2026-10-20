@@ -4,18 +4,17 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.database import Base, resolve_database_url
+from app.database import DEFAULT_DATABASE_PATH, Base, resolve_database_url
 from app.models import Company, PayrollSchedule, SalesTaxRegistration, Task
 from app.task_generation import insert_task_if_missing
 
 
 def test_database_url_defaults_to_sqlite_outside_production():
-    assert resolve_database_url("development", "") == "sqlite:///./payroll_tracker.db"
+    assert resolve_database_url("development", "") == f"sqlite:///{DEFAULT_DATABASE_PATH.as_posix()}"
 
 
-def test_database_url_is_required_in_production():
-    with pytest.raises(RuntimeError, match="DATABASE_URL"):
-        resolve_database_url("production", "")
+def test_database_url_defaults_to_sqlite_in_production():
+    assert resolve_database_url("production", "") == f"sqlite:///{DEFAULT_DATABASE_PATH.as_posix()}"
 
 
 @pytest.mark.parametrize("scheme", ["postgres://", "postgresql://"])
